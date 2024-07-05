@@ -72,6 +72,8 @@ $_CONFIG = array
 	'routers' => array(),
 );
 
+$anunciadas;
+
 @ob_end_flush();
 
 if (file_exists('lg_config.php') AND is_readable('lg_config.php'))
@@ -82,7 +84,17 @@ if (file_exists('lg_config.php') AND is_readable('lg_config.php'))
 $router = isset($_REQUEST['router']) ? trim($_REQUEST['router']) : FALSE; 
 $protocol = isset($_REQUEST['protocol']) ? trim($_REQUEST['protocol']) : FALSE;
 $command = isset($_REQUEST['command']) ? trim($_REQUEST['command']) : FALSE;
-$query = isset($_REQUEST['query']) ? trim($_REQUEST['query']) : FALSE;
+$query = isset($_REQUEST['query']) ? $_REQUEST['query'] : array(); // Inicializa como um array vazio se não houver 'query'
+
+// Verifica se 'query' é um array e trata cada elemento
+if (is_array($query)) {
+    foreach ($query as $key => $value) {
+        $query[$key] = trim($value); // Remove espaços em branco de cada elemento do array
+    }
+} else {
+    $query = trim($_REQUEST['query']); // Transforma em array único se não for array
+}
+
 
 if ($command != 'graph' OR !isset($_REQUEST['render']) OR !isset($_CONFIG['routers'][$router]))
 {
@@ -251,6 +263,7 @@ $queries = array
 		(
 			'bgp' => 'display bgp routing-table %s | no-more',
 			'advertised-routes'	=> 'display bgp routing-table peer %s advertised-routes | no-more',
+			'advertised-communities'	=> 'display bgp routing-table peer %s advertised-routes %s community-list | no-more',
 			'graph'	=> 'display bgp routing-table %s as-path | no-more',
 			'bgp-within' => 'display bgp routing-table %s as-path | no-more',
 			'received-routes' => 'display bgp routing-table peer %s received-routes | no-more',
@@ -264,6 +277,7 @@ $queries = array
 			'bgp' => 'display bgp ipv6 routing-table %s',
 			'graph' => 'display bgp ipv6 routing-table %s as-path | no-more',
 			'advertised-routes' => 'display bgp ipv6 routing-table peer %s advertised-routes | no-more',
+			'advertised-communities' => 'display bgp ipv6 routing-table peer %s advertised-routes %s community-list | no-more',
 			'received-routes' => 'display bgp ipv6 routing-table peer %s received-routes | no-more',
 			'routes'	=> 'display bgp ipv6 routing-table peer %s received-routes active | no-more',
 			'summary' => 'display bgp ipv6 peer',
@@ -307,6 +321,7 @@ if (isset($_CONFIG['routers'][$router]) AND
 		$exec = $queries[$os][$protocol]['bgp'];
 	}else{
 		$exec = $queries[$os][$protocol][$command];
+		// var_dump($query);
 	}
 
 	if (strpos($exec, '%s') !== FALSE)
@@ -317,6 +332,16 @@ if (isset($_CONFIG['routers'][$router]) AND
 			{
 				$query = get_host($query);
 			}
+		}
+		
+		$num_placeholders = substr_count($exec, '%s');
+		if ($num_placeholders > 1 && is_array($query)) {
+			if ($num_placeholders != count($query)) {
+					// Handle error: the number of placeholders and parameters do not match
+					echo "Número de parâmetros não corresponde ao número de placeholders.";
+				} else {
+					$exec = vsprintf(str_replace('%s', '%s', $exec), array_map('escapeshellcmd', $query));
+				}
 		}
 
 		if ($query AND ($command == 'bgp' OR $command == 'bgp-within' OR $command == 'graph') AND ($os == 'mikrotik' OR ($protocol == 'ipv6' AND $os == 'ios')))
@@ -735,7 +760,143 @@ function process($url, $exec, $return_buffer = FALSE)
 			{
 				@shell_exec('echo n | '.$ssh_path.' '.implode(' ', $params).' screen-length 0 temporary');
 			}*/
+			// interrompi o comando para o caso de ser huawei e rotas anunciadas.
+			if($os == "huawei" and $command == "advertised-routes" and $protocol == "ipv4"){
+				// echo "Pulei";
+				$fp = @popen('echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec, 'r');
+				if ($fp) {
+					$output = '';
+					while (!feof($fp)) {
+						$output .= fgets($fp, 1024);
+					}
+					pclose($fp);
+					
+					$o = explode('Network            NextHop                       MED        LocPrf    PrefVal Path/Ogn',$output);
+					
+					$head = $o[0];
+					echo $head;
+					
+					$t = $o[1];
+					// Cria a tabela com os resultados agora:
+					// $t = str_replace("\r\n", "", $t);
+					$t = explode("\r\n", $t);
+					
+					echo "<table>";
+					$titles = "<tr>
+										<th>Network</th>
+										<th>NextHop</th>
+										<th>MED</th>
+										<th>LocPrf</th>
+										<th>Path</th>
+										<th>Comunidades</th>
+								   </tr>";
+					echo $titles;
+					
+					foreach($t as $linha){
+						if(strlen($linha) < 20) continue;
+						if(preg_match("/^Info: The max number of VTY /i",$linha)) continue;
+						
+						$linha = preg_replace('/\\s\\s+/', ' ', $linha);
+						$linha = explode(' ', $linha);
+						
+						$Network = $linha[2];
+						$NextHop = $linha[3];
+						$MED = $linha[4];
+						$LocPrf = $linha[5];
+						$Path = $linha[6];
 
+						$Network = preg_replace(['/\s\s+/', '/\//'], ' ', $Network);
+
+						$trupa = " <tr $estilo>
+											<td>$Network</td>
+											<td>$NextHop</td>
+											<td>$MED</td>
+											<td>$LocPrf</td>
+											<td>$Path</td>
+											<td>".link_command2("advertised-communities", array($query, $Network ), $name = 'Comunidades', $return_uri = FALSE)."</td>
+									</tr>";
+						echo $trupa;
+						// var_dump($linha);
+					}
+					
+					echo "</table>";
+					
+				}
+			}else if($os == "huawei" and $command == "advertised-routes" and $protocol == "ipv6"){
+				// echo "Pulei";
+				$fp = @popen('echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec, 'r');
+				if ($fp) {
+					$output = '';
+					while (!feof($fp)) {
+						$output .= fgets($fp, 1024);
+					}
+					pclose($fp);
+					
+					// Remove tabulações, quebras de linha e excessos de espaços
+					$output = preg_replace('/[\t\r\n]+/', ' ', $output);
+					$output = preg_replace('/\s{2,}/', ' ', $output);
+					
+					
+					
+					// Padrões de regex para capturar os campos relevantes
+					$patterns = [
+						'Network' => '/Network\s*:\s*(.*?)\s*PrefixLen\s*:\s*(\d+)/',
+						'NextHop' => '/NextHop\s*:\s*(.*?)\s*LocPrf\s*:\s*(\d*)/',
+						'MED' => '/MED\s*:\s*(\d+)/',
+						'PathOgn' => '/Ogn\s*:\s*(\d+[a-zA-Z]?)\b/'
+					];
+
+					// Inicializa a tabela HTML
+					echo "<table>";
+					echo "<tr>
+							  <th>Network</th>
+							  <th>NextHop</th>
+							  <th>MED</th>
+							  <th>LocPrf</th>
+							  <th>Path</th>
+							  <th>Comunidades</th>
+						  </tr>";
+
+					// Encontra todas as correspondências usando os padrões de regex
+					foreach ($patterns as $key => $pattern) {
+						preg_match_all($pattern, $output, $matches[$key]);
+					
+					}
+					// var_dump($matches);
+					// Itera sobre as correspondências encontradas
+					$numEntries = count($matches['Network'][1]); // Número de entradas de rota
+					
+					for ($i = 0; $i < $numEntries; $i++) {
+						// Extrai os campos relevantes de cada entrada
+						$PrefixLen = isset($matches['Network'][2][$i]) ? $matches['Network'][2][$i] : '';
+						$Network = isset($matches['Network'][1][$i]) ? $matches['Network'][1][$i] . ' ' . $PrefixLen : '';
+						$NextHop = isset($matches['NextHop'][1][$i]) ? $matches['NextHop'][1][$i] : '';
+						$LocPrf = isset($matches['NextHop'][2][$i]) ? $matches['NextHop'][2][$i] : '';
+						$MED = isset($matches['MED'][1][$i]) ? $matches['MED'][1][$i] : '';
+						$Path = isset($matches['PathOgn'][1][$i]) ? $matches['PathOgn'][1][$i] : '';
+
+						// Ajusta o formato do Network (removendo espaços duplos e substituindo '/' por espaço)
+						$Network = preg_replace('/\s\s+/', ' ', $Network);
+						$Network = str_replace('/', ' ', $Network);
+
+						// Cria a linha da tabela HTML
+						$row = "<tr>
+									<td>$Network</td>
+									<td>$NextHop</td>
+									<td>$MED</td>
+									<td>$LocPrf</td>
+									<td>$Path</td>
+									<td>" . link_command2("advertised-communities", array($query, $Network), 'Comunidades', FALSE) . "</td>
+								</tr>";
+
+						// Exibe a linha na tabela
+						echo $row;
+					}
+
+					// Fecha a tabela HTML
+					echo "</table>";
+				}
+			}else
 			if ($fp = @popen('echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec, 'r'))
 			{
 				// echo 'echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec;
@@ -980,9 +1141,54 @@ function process($url, $exec, $return_buffer = FALSE)
  */
 function parse_out($output, $check = FALSE)
 {
-	global $_CONFIG, $router, $protocol, $os, $command, $exec, $query, $index, $lastip, $best, $count, $str_in, $ros;
+	global $anunciadas, $_CONFIG, $router, $protocol, $os, $command, $exec, $query, $index, $lastip, $best, $count, $str_in, $ros;
 	
 	// Huawei
+//	if(preg_match('/advertised-routes/i', $exec)){
+//		$output = str_replace("\r\n", "", $output);
+//		if (strlen($output) < 20) return;
+//		if (preg_match("/^Info: The max number of VTY /i",$output)) return;
+//		$output = preg_replace('/\\s\\s+/', ' ', $output);
+//		if (preg_match("/^ The current login time /i",$output)) return;
+//		if (preg_match("/^ Status codes: /i",$output)) return;
+//		if (preg_match("/^ h - history, /i",$output)) return;
+//		if (preg_match("/^ Network NextHop MED LocPrf PrefVal /i",$output)) return;
+//		if (preg_match("/^ BGP Local router ID is /i",$output)) return;
+//		if (preg_match("/^ Origin /i",$output)) return;
+//		if (preg_match("/RPKI/i",$output)) return;
+//		if (preg_match("/^ Total Number of Routes: /i",$output)) return;
+//		
+//		$item = explode(" ",$output);
+//		
+//		$titles = "<tr>
+//							<th>Network</th>
+//							<th>NextHop</th>
+//							<th>Path</th>
+//							<th>Comunidades</th>
+//					   </tr>";
+//		// echo $titles;
+//					   
+//		$Network = $item[2];
+//		$NextHop = $item[3];
+//		$Path = $item[6];
+//		$Comunidades = "";
+//		
+//		$trupa .= " <tr $estilo>
+//							<td>$Network</td>
+//							<td>$NextHop</td>
+//							<td>$Path</td>
+//							<td>$Comunidades</td>
+//					</tr>";
+//		// echo $trupa;
+//		
+//		$tabela .= "<table>";
+//		// $tabela .= $titles;
+//		$tabela .= $trupa;
+//		$tabela .= "</table>";
+//		return $tabela;
+//	}
+	
+	
 	if (preg_match('/^display bgp peer/i', $exec) or preg_match('/^display bgp ipv6 peer/i', $exec))
 	{
 		$output = str_replace("\r", "", $output);
@@ -2592,6 +2798,28 @@ function link_command($command, $query, $name = '', $return_uri = FALSE)
 
 	return '<a href="'.$uri.'">'.$name.'</a>';
 }
+
+function link_command2($command, $queries, $name = '', $return_uri = FALSE)
+{
+	global $router, $protocol;
+
+	if ($name == '') {
+		$name = implode(' ', $queries);
+	}
+
+	$queryString = implode('&amp;query[]=', $queries);
+	$uri = '?router='.$router.
+		'&amp;protocol='.$protocol.
+		'&amp;command='.$command.
+		'&amp;query[]='.$queryString;
+
+	if ($return_uri) {
+		return $uri;
+	}
+
+	return '<a href="'.$uri.'">'.$name.'</a>';
+}
+
 
 /**
  * Link to AS community
