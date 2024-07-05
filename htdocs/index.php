@@ -65,10 +65,10 @@ $_CONFIG = array
     'sshprivatekeypath' => '',
 	'sshpwdcommand' => 'plink',
 	'plink' => '/usr/local/bin/plink',
-	'sshpass' => '/usr/bin/sshpass',
+	'sshpass' => '/usr/bin/sshpass', 
     'ssh' => '/usr/bin/ssh',
-	'ipwhois' => 'http://noc.hsdn.org/whois/',
-	'aswhois' => 'http://noc.hsdn.org/aswhois/',
+	'ipwhois' => 'https://stat.ripe.net/',
+	'aswhois' => 'https://stat.ripe.net/',
 	'routers' => array(),
 );
 
