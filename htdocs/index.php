@@ -716,6 +716,7 @@ function process($url, $exec, $return_buffer = FALSE)
                     }
 
                     $params[] = '-o StrictHostKeyChecking=no';
+                    $params[] = '-o KexAlgorithms=+diffie-hellman-group14-sha1';
                     break;
             }
 
@@ -899,7 +900,10 @@ function process($url, $exec, $return_buffer = FALSE)
 			}else
 			if ($fp = @popen('echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec, 'r'))
 			{
-				// echo 'echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec;
+				if(isset($_GET["debug"])){
+					echo 'echo n | '.$ssh_path.' '.implode(' ', $params).' '.$exec;
+				}
+				
 				// var_dump(shell_exec($ssh_path.' '.implode(' ', $params).' '.$exec));
 				while (!feof($fp))
 				{
