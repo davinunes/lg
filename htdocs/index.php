@@ -1202,12 +1202,26 @@ function parse_out($output, $check = FALSE)
 		}
 		$ooo = explode("\n",$output);
 		foreach($ooo as $v){
-			if (strlen($v) < 20) continue;
+			// PASSO 1: Converte o "espaço invisível" (NBSP - chr(160)) para um espaço normal.
+			$v = str_replace(chr(160), " ", $v);
+
+			// PASSO 2: Remove qualquer outro caractere de controle ou lixo restante.
+			$v = preg_replace('/[^\p{L}\p{N}\s\.\:\(\)\-\/<>]/u', '', $v);
+
+			// PASSO 3: Agora o trim() vai funcionar corretamente.
+			$v_trimmed = trim($v);  
+			
+			// PASSO 4: Esta condição irá finalmente capturar a linha vazia e descartá-la.
+			if (empty($v_trimmed) || strlen($v_trimmed) < 20) {
+				continue;
+			}
+	
 			if (preg_match("/^Info: The max number of VTY /i",$v)) continue;
 			$v = preg_replace('/\\s\\s+/', ' ', $v);
 			if (preg_match("/^ The current login time /i",$v)) continue;
 			
-			// var_dump($v);
+			
+			// var_dump($v); 
 			if (preg_match("/^ BGP local router /i",$v)){
 				$head['ID'] = explode(": ",$v)[1];
 				continue;
@@ -1227,16 +1241,29 @@ function parse_out($output, $check = FALSE)
 			
 			$resumo = "Router ID: $head[ID] from ASN: $head[ASN]<br>Peering: $head[up] up of $head[peers] total";
 			
-			// A partir daqui todos os itens avaliados serão um peer a compor a tabela
-			$v = explode(" ",$v);
-			$peer = $v[1];
-			$asn = $v[3];
-			$recebido = $v[4];
-			$enviado = $v[5];
-			$uptime = $v[7];
-			$status = $v[8];
-			$prefixos = $v[9];
-			$OutQ = $v[6];
+			// A partir daqui, tentamos extrair dados de uma linha de peer
+			// Usamos preg_split para ser mais robusto com múltiplos espaços
+			$data_parts = preg_split('/\s+/', trim($v));
+
+			// --- Bloco de Validação ---
+			// 1. A linha precisa ter colunas suficientes (pelo menos 9: Peer até PrefRcv)
+			// 2. O primeiro elemento (peer) não pode ser vazio.
+			// 3. O terceiro elemento (asn) precisa ser um número.
+			if (count($data_parts) < 9 || empty($data_parts[0]) || !is_numeric($data_parts[2])) {
+				continue; // Se não for uma linha de peer válida, pule para a próxima.
+			}
+
+			// Se a validação passou, extraímos os dados com segurança
+			$peer = $data_parts[0];
+			$asn = $data_parts[2];
+			$recebido = $data_parts[3];
+			$enviado = $data_parts[4];
+			$OutQ = $data_parts[5];
+			$uptime = $data_parts[6];
+			$status = $data_parts[7];
+			$prefixos = $data_parts[8];
+			
+			// O resto da sua lógica para formatar e construir a linha da tabela...
 			$asinfo = get_asinfo("AS".$asn);
 			$estilo = $status == "Established" ? 'style="background-color: bisque;"' : "";
 			$pesquisar = $status == "Established" ? link_command("advertised-routes", $peer, $name = 'Anuncios', $return_uri = FALSE) : "";
