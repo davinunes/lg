@@ -134,7 +134,7 @@ if ($command != 'graph' OR !isset($_REQUEST['render']) OR !isset($_CONFIG['route
 	</head>
 	<body>
 <?php if (isset($_CONFIG['logo']) AND $_CONFIG['logo']): ?>
-		<div class="center"><a href="?"><img src="<?php print $_CONFIG['logo'] ?>" border="0" alt="lg"></a></div>
+		<div class="center"><a href="?"><img height="150px" src="<?php print $_CONFIG['logo'] ?>" border="0" alt="lg"></a></div>
 <?php endif ?>
 		<div class="center"><h2>AS<?php print $_CONFIG['asn'] ?> Looking Glass</h2></div>
 		<hr>
@@ -280,7 +280,7 @@ $queries = array
 			'advertised-communities' => 'display bgp ipv6 routing-table peer %s advertised-routes %s community-list | no-more',
 			'received-routes' => 'display bgp ipv6 routing-table peer %s received-routes | no-more',
 			'routes'	=> 'display bgp ipv6 routing-table peer %s received-routes active | no-more',
-			'summary' => 'display bgp ipv6 peer',
+			'summary' => 'display bgp ipv6 peer | no-more',
 			'ping' => 'ping ipv6 %s',
 			'trace' => 'tracert ipv6 %s',
 		)
@@ -636,6 +636,7 @@ function process($url, $exec, $return_buffer = FALSE)
 	switch ($url['scheme'])
 	{
 		case 'ssh':
+			$url['host'] = trim($url['host'], '[]'); //Ajusta IPV6
             if(! empty($_CONFIG['routers'][$router]['sshauthtype']))
             {
                 $sshauthtype = $_CONFIG['routers'][$router]['sshauthtype'];
