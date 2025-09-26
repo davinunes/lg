@@ -1146,7 +1146,7 @@ function process($url, $exec, $return_buffer = FALSE)
  */
 function parse_out($output, $check = FALSE)
 {
-	global $anunciadas, $_CONFIG, $router, $protocol, $os, $command, $exec, $query, $index, $lastip, $best, $count, $str_in, $ros;
+	global $anunciadas, $_CONFIG, $router, $protocol, $os, $command, $exec, $query, $index, $lastip, $best, $count, $str_in, $ros, $url;
 	
 	// Huawei
 //	if(preg_match('/advertised-routes/i', $exec)){
@@ -1195,7 +1195,37 @@ function parse_out($output, $check = FALSE)
 	
 	
 	if (preg_match('/^display bgp peer/i', $exec) or preg_match('/^display bgp ipv6 peer/i', $exec))
-	{
+	{	
+
+		// ==================================================================
+		// INÍCIO DA MODIFICAÇÃO
+		// ==================================================================
+
+		// PASSO 1: Obter as descrições dos peers fazendo uma segunda chamada.
+		$peer_descriptions = [];
+		$description_command = 'display current-configuration | include peer | include description';
+		
+		// Usamos a função process() existente para executar o comando,
+		// mas com o terceiro parâmetro como TRUE para que ela retorne o resultado em vez de imprimir.
+		if ($descriptions_raw = process($url, $description_command, TRUE)) {
+			// var_dump($descriptions_raw);
+			// VERIFICA SE OCORREU ERRO DE PERMISSÃO
+			if (strpos($descriptions_raw, 'Error: You do not have permission') === false) {
+				$description_lines = explode("\n", $descriptions_raw);
+				foreach ($description_lines as $line) {
+					if (preg_match('/peer\s+([0-9a-fA-F:.]+)\s+description\s+(.*)/', $line, $matches)) {
+						$peer_ip = trim($matches[1]);
+						$description_text = trim($matches[2]);
+						$peer_descriptions[$peer_ip] = $description_text;
+					}
+				}
+			}
+		}
+
+		// ==================================================================
+		// FIM DA MODIFICAÇÃO
+		// ==================================================================
+		
 		$output = str_replace("\r", "", $output);
 		if(sizeof(explode("through SSH.",$output)) > 1){
 			$output = explode("through SSH.",$output)[1];
@@ -1269,6 +1299,9 @@ function parse_out($output, $check = FALSE)
 			$pesquisar = $status == "Established" ? link_command("advertised-routes", $peer, $name = 'Anuncios', $return_uri = FALSE) : "";
 			$pesquisar_recebidas = $prefixos > 0 ? link_command("received-routes", $peer, $name = $prefixos, $return_uri = FALSE) : "$prefixos";
 			
+			// MODIFICAÇÃO: Busca a descrição no array que criamos.
+			$description = isset($peer_descriptions[$peer]) ? htmlspecialchars($peer_descriptions[$peer]) : 'N/A';
+			
 			if(sizeof(explode("h",$uptime))>1){
 				$horasb = explode("h",$uptime)[0];
 				$dias = intval($horasb/24);
@@ -1288,10 +1321,12 @@ function parse_out($output, $check = FALSE)
 			}
 			
 			
+			// MODIFICAÇÃO: Adiciona a célula <td> com a descrição.
 			$trupa .= "<tr $estilo>
 							<td>$peer</td>
 							<td>".link_as($asn)."</td>
 							<td style='font-size: 12px;'>".$asinfo['asname']." ".$asinfo['description']."</td>
+							<td>$description</td>
 							<td>$pesquisar</td>
 							<td>$recebido</td>
 							<td>$enviado</td>
@@ -1306,10 +1341,12 @@ function parse_out($output, $check = FALSE)
 		$output = null;
 		$output['head'] = $head;
 		$output['tail'] = $newout;
+		// MODIFICAÇÃO: Adiciona o cabeçalho "Descrição" na tabela.
 		$titles = "<tr>
 							<th>Peer</th>
 							<th>ASN</th>
 							<th>Nome</th>
+							<th>Descrição</th>
 							<th>Anuncios</th>
 							<th>Msg Recebidas</th>
 							<th>Msg Enviadas</th>
